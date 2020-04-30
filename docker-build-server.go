@@ -63,6 +63,7 @@ func DockerConfluentBuildServer(w http.ResponseWriter, r *http.Request) {
     fmt.Fprintf(w, "Lightning fast building for  %s", url_param)
 
     git_clone(url_param)
+
 }
 
 
@@ -70,11 +71,10 @@ func git_clone(git_url string) {
         
         git_parts := strings.SplitN(git_url, "/", -1)
         fmt.Printf("\nSlice 1: %s", git_parts) 
- 
 
-        cloneDirPtr := flag.String("clone-dir", "clone-dir/" + git_url, "Directory to clone")
-	cloneUrlPtr := flag.String("clone-url", "https://" + git_url, "URL to clone")
-	shaPtr := flag.String("sha", "", "sha to clone")
+        cloneDirPtr := flag.String("clone-dir/" + git_url, "clone-dir/" + git_url, "Directory to clone")
+	cloneUrlPtr := flag.String("clone-url/" + git_url, "https://" + git_url, "URL to clone")
+	shaPtr := flag.String("sha/" + git_url, "", "sha to clone")
 	flag.Parse()
 
 	cloneOptions := git.CloneOptions{
