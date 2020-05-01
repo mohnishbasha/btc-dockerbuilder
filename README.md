@@ -19,7 +19,7 @@ Bob, the cat, lightening fast docker build server
 
 
 # Architecture
-![Lightening fast docker build server](link-to-image)
+![Lightening fast docker build server](resources/dockerbuildserver.jpeg)
 
 # Contributors
 * Mohinish Shaikh
