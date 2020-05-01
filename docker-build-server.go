@@ -93,34 +93,7 @@ func DockerConfluentBuildServer(w http.ResponseWriter, r *http.Request) {
        log.Fatal(err)
     }
 
-    fmt.Fprintf(w, "%s", clone_n_dockerbuild(url_param, statsd))
-    
-    // fmt.Fprintf(w, " %s", "bob.run/" + url_param + ":latest")
-    // ----------------------------------------
-     
-    // we need to buffer the body if we want to read it here and send it
-    // in the request. 
-    // body, err := ioutil.ReadAll(r.Body)
-    // if err != nil {
-    //    http.Error(w, err.Error(), http.StatusInternalServerError)
-    //    return
-    // }
-
-    // redirect request to docker daemon
-    
-    // create a new url from the raw RequestURI sent by the client
-    // new_url := fmt.Sprintf("%s://%s%s", "http", "bob.run:2375/", url_param)
-    // proxyReq, err := http.NewRequest(r.Method, new_url, bytes.NewReader(body))
-
-    // We may want to filter some headers, otherwise we could just use a shallow copy
-    // proxyReq.Header = r.Header
-    // new_client := &http.Client{}
-    // new_resp, err := new_client.Do(proxyReq)
-    // if err != nil {
-    //     http.Error(w, err.Error(), http.StatusBadGateway)
-    //     return
-    // }
-    // defer new_resp.Body.Close()
+    clone_n_dockerbuild(url_param, statsd)
  
 }
 
@@ -198,7 +171,7 @@ func clone_n_dockerbuild(git_url string, statsd *statsd.Client) (types.ImageBuil
 	}
 
         Info("Created tar stream ....")
-
+        os.Setenv("DOCKER_BUILDKIT", "1")
         // initialize docker client & background context
         c := ensureDockerClient()
         netCtx := context.Background()
@@ -237,7 +210,15 @@ func clone_n_dockerbuild(git_url string, statsd *statsd.Client) (types.ImageBuil
 	fmt.Println("Image available: ", dockerImageTag)
          
         os.RemoveAll(srcPath)
-
+         
+        response, err := ioutil.ReadAll(buildResp.Body)
+	if err != nil {
+	   fmt.Errorf(err.Error())
+	}
+	buildResp.Body.Close()
+	if string(response) != "body" {
+	   fmt.Errorf("expected Body to contain 'body' string, got %s", response)
+	}
         return buildResp
 }
 
@@ -366,7 +347,7 @@ func timeTrack(start time.Time, name string, statsd *statsd.Client, dockerImageT
     //   log.Fatal(err)
     //}
         
-   statsd.Gauge("btc-dockerbuild." + name, float64(elapsed.Milliseconds()), []string{"Owner:tools","role:dockerbuildserver-hack","environment:dev","imageTag:"+dockerImageTag,"buildkit:false"}, 1)
+   statsd.Gauge("btc-dockerbuild." + name, float64(elapsed.Milliseconds()), []string{"Owner:tools","role:dockerbuildserver-hack","environment:dev","imageTag:"+dockerImageTag,"buildkit:true"}, 1)
    time.Sleep(1 * time.Second)
     
 }
