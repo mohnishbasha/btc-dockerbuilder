@@ -6,6 +6,7 @@ import (
     "os"
     "bytes"
     "strings"
+    "time"
     
     "io/ioutil"
     "github.com/dimiro1/banner"
@@ -25,6 +26,10 @@ import (
     "github.com/docker/engine-api/types"
     "golang.org/x/net/context"
     "bufio"
+
+     "math/rand"
+     "log"
+     "github.com/DataDog/datadog-go/statsd"
 )
 
 
@@ -71,21 +76,70 @@ func DockerConfluentBuildServer(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    fmt.Fprintf(w, "Lightning fast building for  %s", url_param)
+    fmt.Println("Lightning fast docker build for ", url_param)
+    
+    // v2/github.com/mohnishbasha/hello-world/manifests/latest
+    if strings.Contains(url_param, "v2") {
+       url_param_1 := strings.ReplaceAll(url_param, "v2/", "")
+       url_param_2 := strings.ReplaceAll(url_param_1, "/manifests/latest", "")
+       Info(url_param_1)
+       Info(url_param_2)
+       url_param = url_param_2
+    }
+     
 
-    clone_n_dockerbuild(url_param)
+    statsd, err := statsd.New("127.0.0.1:8125")
+    if err != nil {
+       log.Fatal(err)
+    }
 
+    fmt.Fprintf(w, "%s", clone_n_dockerbuild(url_param, statsd))
+    
+    // fmt.Fprintf(w, " %s", "bob.run/" + url_param + ":latest")
+    // ----------------------------------------
+     
+    // we need to buffer the body if we want to read it here and send it
+    // in the request. 
+    // body, err := ioutil.ReadAll(r.Body)
+    // if err != nil {
+    //    http.Error(w, err.Error(), http.StatusInternalServerError)
+    //    return
+    // }
+
+    // redirect request to docker daemon
+    
+    // create a new url from the raw RequestURI sent by the client
+    // new_url := fmt.Sprintf("%s://%s%s", "http", "bob.run:2375/", url_param)
+    // proxyReq, err := http.NewRequest(r.Method, new_url, bytes.NewReader(body))
+
+    // We may want to filter some headers, otherwise we could just use a shallow copy
+    // proxyReq.Header = r.Header
+    // new_client := &http.Client{}
+    // new_resp, err := new_client.Do(proxyReq)
+    // if err != nil {
+    //     http.Error(w, err.Error(), http.StatusBadGateway)
+    //     return
+    // }
+    // defer new_resp.Body.Close()
+ 
 }
 
 
-func clone_n_dockerbuild(git_url string) {
-        
+func clone_n_dockerbuild(git_url string, statsd *statsd.Client) (types.ImageBuildResponse) {
+       
+        domain_name := "bob.run"
         git_parts := strings.SplitN(git_url, "/", -1)
         fmt.Printf("\nSlice 1: %s", git_parts) 
+        dockerImageTag := domain_name + "/" + git_url
+        fmt.Printf("DockerImageTag: %s", dockerImageTag)
+  
+        cloneDirStr := fmt.Sprintf("%s%d%s", "clone-dir/",rand.Int(),git_url);
+        cloneUrlStr := fmt.Sprintf("%s%d%s", "clone-url/",rand.Int(),git_url);
+        shaStr := fmt.Sprintf("%s%d%s", "sha/",rand.Int(),git_url);
 
-        cloneDirPtr := flag.String("clone-dir/" + git_url, "clone-dir/" + git_url, "Directory to clone")
-	cloneUrlPtr := flag.String("clone-url/" + git_url, "https://" + git_url, "URL to clone")
-	shaPtr := flag.String("sha/" + git_url, "", "sha to clone")
+        cloneDirPtr := flag.String(cloneDirStr, "clone-dir/" + git_url, "Directory to clone")
+        cloneUrlPtr := flag.String(cloneUrlStr, "https://" + git_url, "URL to clone")
+	shaPtr := flag.String(shaStr, "", "sha to clone")
 	flag.Parse()
 
 	cloneOptions := git.CloneOptions{
@@ -95,7 +149,11 @@ func clone_n_dockerbuild(git_url string) {
 		Progress:      os.Stdout,
 		Tags:          git.NoTags,
 	}
+
 	repo, err := git.PlainClone(*cloneDirPtr, false, &cloneOptions)
+        if err != nil {
+	   os.RemoveAll("clone-dir")
+	}
 	CheckIfError(err)
 	reference, err := repo.Head()
 	CheckIfError(err)
@@ -122,7 +180,7 @@ func clone_n_dockerbuild(git_url string) {
             fmt.Errorf("error1: '%s'", err1.Error())
         }
 
-        //dockerfilePath, err2 := filepath.Abs("clone-dir/" + git_url + "/Dockerfile")
+        // dockerfilePath, err2 := filepath.Abs("clone-dir/" + git_url + "/Dockerfile")
         // if err2 != nil {
         //    fmt.Errorf("error2: '%s'", err2.Error())
         // }  
@@ -131,7 +189,9 @@ func clone_n_dockerbuild(git_url string) {
         
 
         Info("Tar file paths:  %s %s", srcPath, dockerfilePath)
-	
+
+        defer timeTrack(time.Now(), "dockerbuild-time", statsd, dockerImageTag)
+        
         tarReader, err := CreateTarStream(srcPath, dockerfilePath)
 	if err != nil {
             fmt.Errorf("error creating docker tar stream: '%s'", err.Error())
@@ -143,10 +203,12 @@ func clone_n_dockerbuild(git_url string) {
         c := ensureDockerClient()
         netCtx := context.Background()
 
-        Info("Initialized docker client and docker context: '%s'", dockerfilePath)
-	
+        Info("dockerfilepath: '%s'", dockerfilePath)
+        Info("dockerImageTag: '%s'", dockerImageTag)	
         // set build options for docker build
+
         opts := types.ImageBuildOptions{
+                Tags: []string{dockerImageTag + ":latest"},
 		Dockerfile: dockerfilePath,
 	}
 
@@ -172,9 +234,11 @@ func clone_n_dockerbuild(git_url string) {
 			fmt.Errorf("error read docker build image: '%s'", err.Error())
 		}
 	}
-	fmt.Println("done")
-        
+	fmt.Println("Image available: ", dockerImageTag)
+         
         os.RemoveAll(srcPath)
+
+        return buildResp
 }
 
 
@@ -291,4 +355,18 @@ func ensureDockerClient() *client.Client {
 		fmt.Errorf("DOCKER_HOST not set?: %v", err)
 	}
 	return c
+}
+
+func timeTrack(start time.Time, name string, statsd *statsd.Client, dockerImageTag string) {
+    elapsed := time.Since(start)
+    Info("%s took %s", name, elapsed)
+    
+    //statsd, err := statsd.New("127.0.0.1:8125")
+    //if err != nil {
+    //   log.Fatal(err)
+    //}
+        
+   statsd.Gauge("btc-dockerbuild." + name, float64(elapsed.Milliseconds()), []string{"Owner:tools","role:dockerbuildserver-hack","environment:dev","imageTag:"+dockerImageTag,"buildkit:false"}, 1)
+   time.Sleep(1 * time.Second)
+    
 }
