@@ -23,8 +23,8 @@ Bob, the cat, lightening fast docker build server
 
 # Setup
 * Install Go version 1.14+
-* export $GOROOT=<path to go installation folder>
-* export $GOPATH=<path to working dir>
+* export $GOROOT= path to go installation folder
+* export $GOPATH= path to working dir
 * export PATH=$PATH:$GOROOT/bin:$GOPATH/bin
 * add to /etc/hosts -> 127.0.0.1       bob.run
 * cd $GOPATH && mkdir src bin pkg
